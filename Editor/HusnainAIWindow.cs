@@ -865,6 +865,100 @@ namespace HusnainUnityAI
             return s.Length > n ? s.Substring(0, n) + "\n[...truncated]" : s;
         }
 
+        static void SanitizeOrphanToolUse(List<OutgoingMessage> messages)
+        {
+            // Drop any `tool_use` blocks that don't have a matching `tool_result`
+            // in the immediately-following user message. Otherwise the API 400s
+            // with "tool_use ids were found without tool_result blocks".
+            for (int i = 0; i < messages.Count; i++)
+            {
+                var msg = messages[i];
+                if (msg.role != "assistant" || msg.content == null) continue;
+
+                bool hasToolUse = false;
+                foreach (var b in msg.content)
+                {
+                    if (b.type == "tool_use") { hasToolUse = true; break; }
+                }
+                if (!hasToolUse) continue;
+
+                var resolvedIds = new HashSet<string>();
+                if (i + 1 < messages.Count
+                    && messages[i + 1].role == "user"
+                    && messages[i + 1].content != null)
+                {
+                    foreach (var b in messages[i + 1].content)
+                    {
+                        if (b.type == "tool_result" && !string.IsNullOrEmpty(b.tool_use_id))
+                        {
+                            resolvedIds.Add(b.tool_use_id);
+                        }
+                    }
+                }
+
+                var filtered = new List<OutgoingContentBlock>();
+                foreach (var b in msg.content)
+                {
+                    if (b.type == "tool_use"
+                        && (string.IsNullOrEmpty(b.id) || !resolvedIds.Contains(b.id)))
+                    {
+                        continue;
+                    }
+                    filtered.Add(b);
+                }
+                if (filtered.Count == 0)
+                {
+                    filtered.Add(new OutgoingContentBlock { type = "text", text = "" });
+                }
+                msg.content = filtered;
+            }
+
+            // Also drop `tool_result` blocks whose `tool_use_id` doesn't exist —
+            // the inverse case, less common but possible after history corruption.
+            for (int i = 0; i < messages.Count; i++)
+            {
+                var msg = messages[i];
+                if (msg.role != "user" || msg.content == null) continue;
+
+                bool hasToolResult = false;
+                foreach (var b in msg.content)
+                {
+                    if (b.type == "tool_result") { hasToolResult = true; break; }
+                }
+                if (!hasToolResult) continue;
+
+                var availableIds = new HashSet<string>();
+                if (i > 0
+                    && messages[i - 1].role == "assistant"
+                    && messages[i - 1].content != null)
+                {
+                    foreach (var b in messages[i - 1].content)
+                    {
+                        if (b.type == "tool_use" && !string.IsNullOrEmpty(b.id))
+                        {
+                            availableIds.Add(b.id);
+                        }
+                    }
+                }
+
+                var filtered = new List<OutgoingContentBlock>();
+                foreach (var b in msg.content)
+                {
+                    if (b.type == "tool_result"
+                        && (string.IsNullOrEmpty(b.tool_use_id) || !availableIds.Contains(b.tool_use_id)))
+                    {
+                        continue;
+                    }
+                    filtered.Add(b);
+                }
+                if (filtered.Count == 0)
+                {
+                    filtered.Add(new OutgoingContentBlock { type = "text", text = "" });
+                }
+                msg.content = filtered;
+            }
+        }
+
         List<OutgoingMessage> BuildOutgoing()
         {
             var list = new List<OutgoingMessage>(_turns.Count);
@@ -926,8 +1020,14 @@ namespace HusnainUnityAI
                     }
                 }
 
+                if (blocks.Count == 0)
+                {
+                    blocks.Add(new OutgoingContentBlock { type = "text", text = "" });
+                }
+
                 list.Add(new OutgoingMessage { role = t.Role, content = blocks });
             }
+            SanitizeOrphanToolUse(list);
             return list;
         }
     }
