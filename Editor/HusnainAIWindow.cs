@@ -19,8 +19,13 @@ namespace HusnainUnityAI
 
         [SerializeField] List<ChatTurn> _turns = new List<ChatTurn>();
         [SerializeField] string _input = "";
+        [SerializeField] string _conversationId;
+        [SerializeField] string _conversationTitle = "New conversation";
+        [SerializeField] string _conversationCreatedAt;
+        [SerializeField] bool _showSidebar = true;
 
         Vector2 _scroll;
+        Vector2 _sidebarScroll;
         bool _waiting;
         string _error;
         bool _showSettings;
@@ -30,6 +35,9 @@ namespace HusnainUnityAI
         string _systemDraft;
         bool _showApiKey;
 
+        const float SidebarWidth = 220f;
+
+        List<ConversationMeta> _conversationsList = new List<ConversationMeta>();
         AgentLoop _activeLoop;
 
         [MenuItem("Window/Husnain AI")]
@@ -44,6 +52,31 @@ namespace HusnainUnityAI
         {
             titleContent = new GUIContent("Husnain AI");
             if (_turns == null) _turns = new List<ChatTurn>();
+
+            RefreshConversations();
+
+            if (!string.IsNullOrEmpty(_conversationId))
+            {
+                var snap = ChatHistory.Load(_conversationId);
+                if (snap == null)
+                {
+                    _conversationId = null;
+                    _conversationTitle = "New conversation";
+                    _turns = new List<ChatTurn>();
+                }
+            }
+
+            if (string.IsNullOrEmpty(_conversationId))
+            {
+                if (_conversationsList.Count > 0)
+                {
+                    LoadConversation(_conversationsList[0].Id);
+                }
+                else
+                {
+                    StartNewConversation(persistImmediately: false);
+                }
+            }
         }
 
         void OnGUI()
@@ -65,14 +98,34 @@ namespace HusnainUnityAI
                 return;
             }
 
+            EditorGUILayout.BeginHorizontal();
+            if (_showSidebar)
+            {
+                DrawSidebar();
+            }
+            EditorGUILayout.BeginVertical();
             DrawTranscript();
             DrawInput();
+            EditorGUILayout.EndVertical();
+            EditorGUILayout.EndHorizontal();
         }
 
         void DrawHeader()
         {
             EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
-            GUILayout.Label(HusnainAISettings.Model, EditorStyles.boldLabel);
+
+            if (GUILayout.Button(_showSidebar ? "Hide Chats" : "Chats",
+                                 EditorStyles.toolbarButton,
+                                 GUILayout.Width(80)))
+            {
+                _showSidebar = !_showSidebar;
+            }
+
+            var headerLabel = string.IsNullOrEmpty(_conversationTitle)
+                ? HusnainAISettings.Model
+                : _conversationTitle + "  ·  " + HusnainAISettings.Model;
+            GUILayout.Label(headerLabel, EditorStyles.boldLabel);
+
             GUILayout.FlexibleSpace();
 
             var approvalLabel = HusnainAISettings.AutoApproveEdits ? "Auto-accept: ON" : "Auto-accept: OFF";
@@ -108,6 +161,109 @@ namespace HusnainUnityAI
                 }
             }
             EditorGUILayout.EndHorizontal();
+        }
+
+        void DrawSidebar()
+        {
+            EditorGUILayout.BeginVertical(GUILayout.Width(SidebarWidth));
+
+            EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+            if (GUILayout.Button("+ New chat", EditorStyles.toolbarButton))
+            {
+                AbandonActiveLoop();
+                StartNewConversation(persistImmediately: true);
+            }
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("⟳", EditorStyles.toolbarButton, GUILayout.Width(28)))
+            {
+                RefreshConversations();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            _sidebarScroll = EditorGUILayout.BeginScrollView(_sidebarScroll);
+
+            string toDelete = null;
+            string toLoad = null;
+
+            foreach (var c in _conversationsList)
+            {
+                bool isActive = c.Id == _conversationId;
+                var rect = GUILayoutUtility.GetRect(GUIContent.none, GUI.skin.label,
+                                                     GUILayout.Height(40),
+                                                     GUILayout.ExpandWidth(true));
+
+                if (isActive)
+                {
+                    EditorGUI.DrawRect(rect, new Color(1f, 0.65f, 0.18f, 0.18f));
+                }
+
+                var bodyRect = new Rect(rect.x + 4, rect.y + 2, rect.width - 26, rect.height - 4);
+                var titleStyle = new GUIStyle(EditorStyles.label)
+                {
+                    fontStyle = isActive ? FontStyle.Bold : FontStyle.Normal,
+                    wordWrap = false,
+                    clipping = TextClipping.Clip,
+                };
+                var titleRect = new Rect(bodyRect.x, bodyRect.y, bodyRect.width, 18);
+                var dateRect = new Rect(bodyRect.x, bodyRect.y + 18, bodyRect.width, 14);
+
+                GUI.Label(titleRect, c.Title, titleStyle);
+                GUI.Label(dateRect, RelativeTime(c.UpdatedAt), EditorStyles.miniLabel);
+
+                if (Event.current.type == EventType.MouseDown
+                    && Event.current.button == 0
+                    && bodyRect.Contains(Event.current.mousePosition))
+                {
+                    toLoad = c.Id;
+                    Event.current.Use();
+                }
+
+                var delRect = new Rect(rect.xMax - 22, rect.y + (rect.height - 18) * 0.5f, 18, 18);
+                if (GUI.Button(delRect, "×", EditorStyles.miniButton))
+                {
+                    toDelete = c.Id;
+                }
+            }
+
+            if (toLoad != null && toLoad != _conversationId)
+            {
+                AbandonActiveLoop();
+                SaveCurrent();
+                LoadConversation(toLoad);
+                Repaint();
+            }
+
+            if (toDelete != null)
+            {
+                if (EditorUtility.DisplayDialog(
+                        "Delete conversation?",
+                        "This permanently removes this conversation. This cannot be undone.",
+                        "Delete", "Cancel"))
+                {
+                    ChatHistory.Delete(toDelete);
+                    if (toDelete == _conversationId)
+                    {
+                        _conversationId = null;
+                        RefreshConversations();
+                        if (_conversationsList.Count > 0)
+                        {
+                            LoadConversation(_conversationsList[0].Id);
+                        }
+                        else
+                        {
+                            StartNewConversation(persistImmediately: false);
+                        }
+                    }
+                    else
+                    {
+                        RefreshConversations();
+                    }
+                    Repaint();
+                }
+            }
+
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
         }
 
         void DrawSettings()
@@ -162,6 +318,11 @@ namespace HusnainUnityAI
                 HusnainAISettings.ClearApiKey();
             }
             EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space();
+            EditorGUILayout.LabelField("Conversation storage", EditorStyles.boldLabel);
+            EditorGUILayout.SelectableLabel(ChatHistory.Dir, EditorStyles.miniLabel,
+                                             GUILayout.Height(EditorGUIUtility.singleLineHeight));
         }
 
         void DrawTranscript()
@@ -262,6 +423,17 @@ namespace HusnainUnityAI
             return s.Length > n ? s.Substring(0, n) + "…" : s;
         }
 
+        static string RelativeTime(DateTime utc)
+        {
+            if (utc == DateTime.MinValue) return "";
+            var diff = DateTime.UtcNow - utc;
+            if (diff.TotalSeconds < 60) return "just now";
+            if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes}m ago";
+            if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+            if (diff.TotalDays < 7) return $"{(int)diff.TotalDays}d ago";
+            return utc.ToLocalTime().ToString("MMM d");
+        }
+
         static string ToolPreview(ToolCallRecord tc)
         {
             var tool = ToolRegistry.Get(tc.Name);
@@ -277,6 +449,68 @@ namespace HusnainUnityAI
             }
         }
 
+        void RefreshConversations()
+        {
+            _conversationsList = ChatHistory.List();
+        }
+
+        void StartNewConversation(bool persistImmediately)
+        {
+            _conversationId = ChatHistory.NewId();
+            _conversationTitle = "New conversation";
+            _conversationCreatedAt = DateTime.UtcNow.ToString("o");
+            _turns.Clear();
+            _input = "";
+            _error = null;
+            if (persistImmediately) SaveCurrent();
+            RefreshConversations();
+        }
+
+        void LoadConversation(string id)
+        {
+            var snap = ChatHistory.Load(id);
+            if (snap == null) return;
+            _conversationId = snap.id;
+            _conversationTitle = string.IsNullOrEmpty(snap.title) ? "New conversation" : snap.title;
+            _conversationCreatedAt = snap.createdAt;
+            _turns = snap.turns ?? new List<ChatTurn>();
+            _input = "";
+            _error = null;
+        }
+
+        void SaveCurrent()
+        {
+            if (string.IsNullOrEmpty(_conversationId))
+            {
+                _conversationId = ChatHistory.NewId();
+            }
+
+            if ((_conversationTitle == "New conversation" || string.IsNullOrEmpty(_conversationTitle))
+                && _turns.Count > 0)
+            {
+                _conversationTitle = ChatHistory.AutoTitle(_turns);
+            }
+
+            ChatHistory.Save(new ChatHistorySnapshot
+            {
+                id = _conversationId,
+                title = _conversationTitle,
+                createdAt = _conversationCreatedAt,
+                model = HusnainAISettings.Model,
+                turns = _turns,
+            });
+        }
+
+        void AbandonActiveLoop()
+        {
+            if (_activeLoop != null)
+            {
+                _activeLoop.Stop();
+                _activeLoop = null;
+            }
+            _waiting = false;
+        }
+
         void Send()
         {
             var prompt = _input.Trim();
@@ -287,6 +521,9 @@ namespace HusnainUnityAI
             _error = null;
             _waiting = true;
             Repaint();
+
+            SaveCurrent();
+            RefreshConversations();
 
             var system = HusnainAISettings.SystemPrompt
                 + "\n\nProject root (real path): " + ProjectPaths.ProjectRoot
@@ -314,6 +551,8 @@ namespace HusnainUnityAI
                     if (_activeLoop != loop) return;
                     _waiting = false;
                     _activeLoop = null;
+                    SaveCurrent();
+                    RefreshConversations();
                     _scroll = new Vector2(_scroll.x, float.MaxValue);
                     Repaint();
                 },
@@ -325,6 +564,7 @@ namespace HusnainUnityAI
         void OnAgentText(string text)
         {
             _turns.Add(new ChatTurn { Role = "assistant", Text = text });
+            SaveCurrent();
             _scroll = new Vector2(_scroll.x, float.MaxValue);
             Repaint();
         }
@@ -340,6 +580,7 @@ namespace HusnainUnityAI
                     if (last.ToolCalls == null) last.ToolCalls = new List<ToolCallRecord>();
                     last.ToolCalls.Add(tc);
                     _turns[_turns.Count - 1] = last;
+                    SaveCurrent();
                     Repaint();
                     return;
                 }
@@ -349,6 +590,7 @@ namespace HusnainUnityAI
                 Role = "assistant",
                 ToolCalls = new List<ToolCallRecord> { tc },
             });
+            SaveCurrent();
             _scroll = new Vector2(_scroll.x, float.MaxValue);
             Repaint();
         }
@@ -364,6 +606,7 @@ namespace HusnainUnityAI
                 {
                     last.ToolResults.Add(tr);
                     _turns[_turns.Count - 1] = last;
+                    SaveCurrent();
                     Repaint();
                     return;
                 }
@@ -373,6 +616,7 @@ namespace HusnainUnityAI
                 Role = "user",
                 ToolResults = new List<ToolResultRecord> { tr },
             });
+            SaveCurrent();
             _scroll = new Vector2(_scroll.x, float.MaxValue);
             Repaint();
         }
