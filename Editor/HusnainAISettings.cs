@@ -10,7 +10,7 @@ namespace HusnainUnityAI
         const string SystemPromptPref = "HusnainUnityAI.SystemPrompt";
 
         public const string DefaultModel = "claude-opus-4-7";
-        public const int DefaultMaxTokens = 8192;
+        public const int DefaultMaxTokens = 16384;
 
         public const string DefaultSystemPrompt =
 @"You are an AI assistant embedded in the Unity Editor. You help with Unity projects: explaining code, suggesting changes, and answering questions about Unity APIs.
