@@ -136,6 +136,11 @@ namespace HusnainUnityAI
                 return;
             }
 
+            // Only keep tool_use blocks when we actually plan to execute them.
+            // Otherwise (max_tokens, refusal, etc.) they'd be persisted as orphans
+            // — the next API call would 400 because no tool_result follows.
+            bool keepToolUse = response.stop_reason == "tool_use";
+
             var assistantBlocks = new List<OutgoingContentBlock>();
             var toolCalls = new List<(string id, string name, JObject input)>();
             string textOut = null;
@@ -154,7 +159,7 @@ namespace HusnainUnityAI
                             text = block.text,
                         });
                     }
-                    else if (block.type == "tool_use")
+                    else if (block.type == "tool_use" && keepToolUse)
                     {
                         toolCalls.Add((block.id, block.name, block.input ?? new JObject()));
                         assistantBlocks.Add(new OutgoingContentBlock
