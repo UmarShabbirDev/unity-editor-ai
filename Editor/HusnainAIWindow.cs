@@ -48,6 +48,13 @@ namespace HusnainUnityAI
         string _systemDraft;
         bool _showApiKey;
 
+        readonly List<string> _undoStack = new List<string>();
+        readonly List<string> _redoStack = new List<string>();
+        string _lastInputSnapshot = "";
+        double _lastSnapshotTime;
+        const int MaxUndoDepth = 100;
+        const double SnapshotIntervalSec = 0.4;
+
         const long MaxImageBytes = 5L * 1024 * 1024;
         const long MaxPdfBytes = 32L * 1024 * 1024;
         const float SidebarWidth = 220f;
@@ -66,6 +73,8 @@ namespace HusnainUnityAI
         void OnEnable()
         {
             titleContent = new GUIContent("Husnain AI");
+            _lastInputSnapshot = _input ?? "";
+
             if (_turns == null) _turns = new List<ChatTurn>();
             if (_pendingAttachments == null) _pendingAttachments = new List<Attachment>();
 
@@ -97,6 +106,7 @@ namespace HusnainUnityAI
 
         void OnGUI()
         {
+            HandleInputUndoShortcuts();
             DrawHeader();
 
             if (_showSettings)
@@ -450,6 +460,7 @@ namespace HusnainUnityAI
             {
                 _input = EditorGUILayout.TextArea(_input, GUILayout.Height(80));
             }
+            TrackInputForUndo();
 
             EditorGUILayout.BeginHorizontal();
             using (new EditorGUI.DisabledScope(_waiting))
@@ -525,6 +536,58 @@ namespace HusnainUnityAI
             }
         }
 
+        void HandleInputUndoShortcuts()
+        {
+            var e = Event.current;
+            if (e == null || e.type != EventType.KeyDown) return;
+            bool mod = e.control || e.command;
+            if (!mod) return;
+
+            if (e.keyCode == KeyCode.Z && !e.shift)
+            {
+                if (_undoStack.Count > 0)
+                {
+                    _redoStack.Add(_input ?? "");
+                    _input = _undoStack[_undoStack.Count - 1];
+                    _undoStack.RemoveAt(_undoStack.Count - 1);
+                    _lastInputSnapshot = _input ?? "";
+                    GUI.changed = true;
+                    e.Use();
+                    Repaint();
+                }
+            }
+            else if ((e.keyCode == KeyCode.Z && e.shift) || e.keyCode == KeyCode.Y)
+            {
+                if (_redoStack.Count > 0)
+                {
+                    _undoStack.Add(_input ?? "");
+                    _input = _redoStack[_redoStack.Count - 1];
+                    _redoStack.RemoveAt(_redoStack.Count - 1);
+                    _lastInputSnapshot = _input ?? "";
+                    GUI.changed = true;
+                    e.Use();
+                    Repaint();
+                }
+            }
+        }
+
+        void TrackInputForUndo()
+        {
+            var current = _input ?? "";
+            if (current == _lastInputSnapshot) return;
+
+            var now = EditorApplication.timeSinceStartup;
+            bool isLargeChange = Math.Abs(current.Length - _lastInputSnapshot.Length) > 32;
+            if (isLargeChange || now - _lastSnapshotTime > SnapshotIntervalSec)
+            {
+                _undoStack.Add(_lastInputSnapshot);
+                if (_undoStack.Count > MaxUndoDepth) _undoStack.RemoveAt(0);
+                _redoStack.Clear();
+                _lastSnapshotTime = now;
+            }
+            _lastInputSnapshot = current;
+        }
+
         static string MediaTypeFor(string extension)
         {
             switch ((extension ?? "").ToLowerInvariant())
@@ -592,6 +655,9 @@ namespace HusnainUnityAI
             _turns.Clear();
             _pendingAttachments.Clear();
             _input = "";
+            _lastInputSnapshot = "";
+            _undoStack.Clear();
+            _redoStack.Clear();
             _error = null;
             if (persistImmediately) SaveCurrent();
             RefreshConversations();
@@ -607,6 +673,9 @@ namespace HusnainUnityAI
             _turns = snap.turns ?? new List<ChatTurn>();
             _pendingAttachments.Clear();
             _input = "";
+            _lastInputSnapshot = "";
+            _undoStack.Clear();
+            _redoStack.Clear();
             _error = null;
         }
 
