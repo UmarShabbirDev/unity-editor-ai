@@ -18,6 +18,7 @@ namespace HusnainUnityAI
             Add(new EditFileTool());
             Add(new CompileCheckTool());
             Add(new TodoWriteTool());
+            Add(new WebFetchTool());
             return dict;
         }
 
