@@ -908,7 +908,7 @@ namespace HusnainUnityAI
                 }
                 if (filtered.Count == 0)
                 {
-                    filtered.Add(new OutgoingContentBlock { type = "text", text = "" });
+                    filtered.Add(new OutgoingContentBlock { type = "text", text = "(prior tool call was interrupted)" });
                 }
                 msg.content = filtered;
             }
@@ -953,7 +953,7 @@ namespace HusnainUnityAI
                 }
                 if (filtered.Count == 0)
                 {
-                    filtered.Add(new OutgoingContentBlock { type = "text", text = "" });
+                    filtered.Add(new OutgoingContentBlock { type = "text", text = "(continuing)" });
                 }
                 msg.content = filtered;
             }
@@ -1022,7 +1022,7 @@ namespace HusnainUnityAI
 
                 if (blocks.Count == 0)
                 {
-                    blocks.Add(new OutgoingContentBlock { type = "text", text = "" });
+                    blocks.Add(new OutgoingContentBlock { type = "text", text = "(continuing)" });
                 }
 
                 list.Add(new OutgoingMessage { role = t.Role, content = blocks });
