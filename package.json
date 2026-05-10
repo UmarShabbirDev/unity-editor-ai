@@ -1,0 +1,27 @@
+{
+  "name": "com.husnain.unity-ai",
+  "displayName": "Husnain Unity AI",
+  "version": "0.1.0",
+  "unity": "2022.3",
+  "author": {
+    "name": "Husnain",
+    "url": "https://github.com/husnainhaider"
+  },
+  "description": "AI-powered Unity Editor assistant. Chat with Claude inside Unity to read/write scripts, edit scenes, materials, prefabs, and shaders. Bring-your-own Anthropic API key.",
+  "keywords": [
+    "ai",
+    "claude",
+    "anthropic",
+    "assistant",
+    "editor-tool",
+    "agent",
+    "automation"
+  ],
+  "dependencies": {
+    "com.unity.nuget.newtonsoft-json": "3.2.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/husnainhaider/unity-ai-editor"
+  }
+}
