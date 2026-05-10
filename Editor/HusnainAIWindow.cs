@@ -38,6 +38,7 @@ namespace HusnainUnityAI
         [SerializeField] bool _showSidebar = true;
 
         Vector2 _scroll;
+        Vector2 _inputScroll;
         Vector2 _sidebarScroll;
         bool _waiting;
         string _error;
@@ -456,9 +457,21 @@ namespace HusnainUnityAI
             }
 
             EditorGUILayout.Space(4);
-            using (new EditorGUI.DisabledScope(_waiting))
             {
-                _input = EditorGUILayout.TextArea(_input, GUILayout.Height(80));
+                var inputStyle = new GUIStyle(EditorStyles.textArea) { wordWrap = true };
+                float maxH = Mathf.Max(160f, position.height * 0.55f);
+                float availW = position.width - (_showSidebar ? SidebarWidth : 0f) - 30f;
+                var measureText = string.IsNullOrEmpty(_input) ? " " : _input + "\n ";
+                float contentH = inputStyle.CalcHeight(new GUIContent(measureText), availW);
+                float dynamicH = Mathf.Clamp(contentH + 8f, 140f, maxH);
+                _inputScroll = EditorGUILayout.BeginScrollView(
+                    _inputScroll,
+                    GUILayout.Height(dynamicH));
+                _input = EditorGUILayout.TextArea(
+                    _input, inputStyle,
+                    GUILayout.ExpandHeight(true),
+                    GUILayout.ExpandWidth(true));
+                EditorGUILayout.EndScrollView();
             }
             TrackInputForUndo();
 
