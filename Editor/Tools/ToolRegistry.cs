@@ -9,6 +9,8 @@ namespace HusnainUnityAI
         static Dictionary<string, ITool> BuildDefault()
         {
             var dict = new Dictionary<string, ITool>();
+            void Add(ITool t) => dict[t.Name] = t;
+            Add(new ReadFileTool());
             return dict;
         }
 
