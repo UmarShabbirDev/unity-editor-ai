@@ -12,6 +12,7 @@ namespace HusnainUnityAI
             void Add(ITool t) => dict[t.Name] = t;
             Add(new ReadFileTool());
             Add(new ListFilesTool());
+            Add(new GlobTool());
             return dict;
         }
 
