@@ -69,12 +69,14 @@ namespace HusnainUnityAI
             // Force-complete after timeout regardless of EditorApplication.isCompiling.
             // When LockReloadAssemblies is in effect, isCompiling can stay true indefinitely
             // because compilation is queued behind the lock. Don't block on it.
+            var hint = _errors.Count > 0
+                ? _errors.Count + " errors observed before timeout. Fix those first.\n"
+                  + string.Join("\n", _errors)
+                : "Unity is likely blocked on existing compile errors that prevent the recompile from finishing. " +
+                  "Do NOT call compile_check again immediately — instead inspect recent edits with read_file " +
+                  "and look for missing usings, typos, or undefined names. Only retry compile_check after fixing them.";
             CompleteWith(ToolExecutionResult.Ok(
-                $"compile_check timed out after {(int)elapsed}s. " +
-                (_errors.Count > 0
-                    ? _errors.Count + " errors observed before timeout."
-                    : "No errors observed.") +
-                " (Unity may still be compiling in the background — call compile_check again if needed.)"));
+                $"compile_check timed out after {(int)elapsed}s. " + hint));
         }
 
         void OnAssemblyFinished(string assemblyPath, CompilerMessage[] messages)
