@@ -11,6 +11,7 @@ namespace HusnainUnityAI
             var dict = new Dictionary<string, ITool>();
             void Add(ITool t) => dict[t.Name] = t;
             Add(new ReadFileTool());
+            Add(new ListFilesTool());
             return dict;
         }
 
