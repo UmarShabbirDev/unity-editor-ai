@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEngine;
 
@@ -5,7 +7,21 @@ namespace HusnainUnityAI
 {
     public class HusnainAIWindow : EditorWindow
     {
+        [Serializable]
+        public struct ChatTurn
+        {
+            public string Role;
+            public string Text;
+        }
+
+        [SerializeField] List<ChatTurn> _turns = new List<ChatTurn>();
+        [SerializeField] string _input = "";
+
+        Vector2 _scroll;
+        bool _waiting;
+        string _error;
         bool _showSettings;
+
         string _apiKeyDraft;
         string _modelDraft;
         string _systemDraft;
@@ -22,6 +38,7 @@ namespace HusnainUnityAI
         void OnEnable()
         {
             titleContent = new GUIContent("Husnain AI");
+            if (_turns == null) _turns = new List<ChatTurn>();
         }
 
         void OnGUI()
@@ -40,7 +57,11 @@ namespace HusnainUnityAI
                 EditorGUILayout.HelpBox(
                     "Set your Anthropic API key to start chatting. Click Settings above.",
                     MessageType.Info);
+                return;
             }
+
+            DrawTranscript();
+            DrawInput();
         }
 
         void DrawHeader()
@@ -106,6 +127,120 @@ namespace HusnainUnityAI
                 HusnainAISettings.ClearApiKey();
             }
             EditorGUILayout.EndHorizontal();
+        }
+
+        void DrawTranscript()
+        {
+            _scroll = EditorGUILayout.BeginScrollView(_scroll);
+
+            foreach (var t in _turns)
+            {
+                EditorGUILayout.Space(6);
+                var label = t.Role == "user" ? "You" : "Husnain AI";
+                EditorGUILayout.LabelField(label, EditorStyles.miniBoldLabel);
+                if (!string.IsNullOrEmpty(t.Text))
+                {
+                    var style = new GUIStyle(EditorStyles.textArea) { wordWrap = true };
+                    EditorGUILayout.SelectableLabel(t.Text, style,
+                        GUILayout.MinHeight(EditorGUIUtility.singleLineHeight * 2),
+                        GUILayout.ExpandHeight(true));
+                }
+            }
+
+            if (_waiting)
+            {
+                EditorGUILayout.Space(6);
+                EditorGUILayout.LabelField("Husnain AI", EditorStyles.miniBoldLabel);
+                EditorGUILayout.LabelField("Working…", EditorStyles.miniLabel);
+            }
+
+            if (!string.IsNullOrEmpty(_error))
+            {
+                EditorGUILayout.Space(6);
+                EditorGUILayout.HelpBox(_error, MessageType.Error);
+            }
+
+            EditorGUILayout.EndScrollView();
+        }
+
+        void DrawInput()
+        {
+            EditorGUILayout.Space(4);
+            using (new EditorGUI.DisabledScope(_waiting))
+            {
+                _input = EditorGUILayout.TextArea(_input, GUILayout.Height(80));
+            }
+
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            using (new EditorGUI.DisabledScope(_waiting || string.IsNullOrWhiteSpace(_input)))
+            {
+                if (GUILayout.Button("Send", GUILayout.Width(80), GUILayout.Height(24)))
+                {
+                    Send();
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.Space(6);
+        }
+
+        void Send()
+        {
+            var prompt = _input.Trim();
+            if (string.IsNullOrEmpty(prompt)) return;
+
+            _turns.Add(new ChatTurn { Role = "user", Text = prompt });
+            _input = "";
+            _error = null;
+            _waiting = true;
+            Repaint();
+
+            var messages = new List<OutgoingMessage>();
+            foreach (var t in _turns)
+            {
+                messages.Add(new OutgoingMessage
+                {
+                    role = t.Role,
+                    content = new List<OutgoingContentBlock>
+                    {
+                        new OutgoingContentBlock { type = "text", text = t.Text }
+                    },
+                });
+            }
+
+            var req = new MessageRequest
+            {
+                model = HusnainAISettings.Model,
+                max_tokens = HusnainAISettings.MaxTokens,
+                system = HusnainAISettings.SystemPrompt,
+                messages = messages,
+            };
+
+            AnthropicClient.SendMessage(HusnainAISettings.ApiKey, req,
+                response =>
+                {
+                    _waiting = false;
+                    string textOut = null;
+                    if (response?.content != null)
+                    {
+                        foreach (var b in response.content)
+                        {
+                            if (b?.type == "text" && !string.IsNullOrEmpty(b.text))
+                            {
+                                textOut = textOut == null ? b.text : textOut + "\n\n" + b.text;
+                            }
+                        }
+                    }
+                    if (textOut != null) _turns.Add(new ChatTurn { Role = "assistant", Text = textOut });
+                    _scroll = new Vector2(_scroll.x, float.MaxValue);
+                    Repaint();
+                },
+                err =>
+                {
+                    _waiting = false;
+                    _error = err;
+                    Repaint();
+                });
         }
     }
 }
