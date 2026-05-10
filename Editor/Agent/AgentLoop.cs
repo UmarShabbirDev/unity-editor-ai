@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Newtonsoft.Json.Linq;
+using UnityEditor;
 
 namespace HusnainUnityAI
 {
@@ -19,8 +20,12 @@ namespace HusnainUnityAI
         readonly Action<string> _onError;
         readonly Action _onDone;
         readonly ApprovalCallback _approval;
+        readonly int _maxIterations;
 
         bool _stopped;
+        bool _reloadLocked;
+        bool _doneFired;
+        int _iter;
 
         public AgentLoop(
             string apiKey,
@@ -33,7 +38,8 @@ namespace HusnainUnityAI
             Action<string> onAssistantText,
             Action<string> onError,
             Action onDone,
-            ApprovalCallback approval)
+            ApprovalCallback approval,
+            int maxIterations = 25)
         {
             _apiKey = apiKey;
             _model = model;
@@ -46,15 +52,62 @@ namespace HusnainUnityAI
             _onError = onError;
             _onDone = onDone;
             _approval = approval;
+            _maxIterations = maxIterations;
         }
 
-        public void Stop() { _stopped = true; }
+        public void Stop()
+        {
+            if (_stopped) return;
+            _stopped = true;
+            EditorApplication.delayCall += () =>
+            {
+                _onError?.Invoke("Cancelled by user.");
+                FireDoneOnce();
+            };
+        }
 
-        public void Start() { SendOnce(); }
+        public void Start()
+        {
+            LockReloads();
+            SendOnce();
+        }
+
+        void LockReloads()
+        {
+            if (_reloadLocked) return;
+            try
+            {
+                EditorApplication.LockReloadAssemblies();
+                _reloadLocked = true;
+            }
+            catch { /* ignore — best-effort */ }
+        }
+
+        void UnlockReloads()
+        {
+            if (!_reloadLocked) return;
+            try { EditorApplication.UnlockReloadAssemblies(); }
+            catch { /* ignore */ }
+            _reloadLocked = false;
+        }
+
+        void FireDoneOnce()
+        {
+            if (_doneFired) return;
+            _doneFired = true;
+            UnlockReloads();
+            _onDone?.Invoke();
+        }
 
         void SendOnce()
         {
             if (_stopped) return;
+            if (++_iter > _maxIterations)
+            {
+                _onError("agent loop exceeded " + _maxIterations + " iterations");
+                FireDoneOnce();
+                return;
+            }
 
             var payload = new MessageRequest
             {
@@ -70,14 +123,18 @@ namespace HusnainUnityAI
 
         void OnFail(string err)
         {
-            _onError?.Invoke(err);
-            _onDone?.Invoke();
+            _onError(err);
+            FireDoneOnce();
         }
 
         void OnSuccess(MessageResponse response)
         {
-            if (_stopped) { _onDone?.Invoke(); return; }
-            if (response == null) { OnFail("empty response"); return; }
+            if (_stopped) { FireDoneOnce(); return; }
+            if (response == null)
+            {
+                OnFail("empty response");
+                return;
+            }
 
             var assistantBlocks = new List<OutgoingContentBlock>();
             var toolCalls = new List<(string id, string name, JObject input)>();
@@ -111,7 +168,10 @@ namespace HusnainUnityAI
                 }
             }
 
-            if (textOut != null) _onAssistantText?.Invoke(textOut);
+            if (textOut != null && _onAssistantText != null)
+            {
+                _onAssistantText(textOut);
+            }
 
             if (assistantBlocks.Count > 0)
             {
@@ -124,13 +184,45 @@ namespace HusnainUnityAI
                 return;
             }
 
-            _onDone?.Invoke();
+            if (response.stop_reason == "end_turn" || response.stop_reason == "stop_sequence")
+            {
+                FireDoneOnce();
+                return;
+            }
+
+            if (response.stop_reason == "max_tokens")
+            {
+                _onError("Stopped: model hit max_tokens (output cap). " +
+                         "Increase Settings → max_tokens, or send 'continue' to resume from where it left off.");
+                FireDoneOnce();
+                return;
+            }
+
+            if (response.stop_reason == "refusal")
+            {
+                _onError("Stopped: model refused for safety reasons.");
+                FireDoneOnce();
+                return;
+            }
+
+            if (toolCalls.Count > 0)
+            {
+                _onError($"Stopped: unexpected stop_reason '{response.stop_reason}' with pending tool calls.");
+                FireDoneOnce();
+                return;
+            }
+
+            FireDoneOnce();
         }
 
         void ExecuteToolCalls(List<(string id, string name, JObject input)> calls, int index)
         {
-            if (_stopped) { _onDone?.Invoke(); return; }
-            if (index >= calls.Count) { SendOnce(); return; }
+            if (_stopped) { FireDoneOnce(); return; }
+            if (index >= calls.Count)
+            {
+                SendOnce();
+                return;
+            }
 
             var (id, name, input) = calls[index];
             var tool = ToolRegistry.Get(name);
@@ -175,20 +267,37 @@ namespace HusnainUnityAI
                 return;
             }
 
-            tool.Execute(input, result =>
+            try
             {
-                if (_stopped) { _onDone?.Invoke(); return; }
-                var text = result?.Text ?? "";
-                var isError = result?.IsError ?? false;
-                AppendResult(id, text, isError);
+                tool.Execute(input, result =>
+                {
+                    EditorApplication.delayCall += () =>
+                    {
+                        if (_stopped) { FireDoneOnce(); return; }
+                        var text = result?.Text ?? "";
+                        var isError = result?.IsError ?? false;
+                        AppendResult(id, text, isError);
+                        _onToolResult?.Invoke(new ToolResultRecord
+                        {
+                            ToolUseId = id,
+                            Content = text,
+                            IsError = isError,
+                        });
+                        ExecuteToolCalls(calls, index + 1);
+                    };
+                });
+            }
+            catch (Exception e)
+            {
+                AppendResult(id, "tool threw: " + e.Message, true);
                 _onToolResult?.Invoke(new ToolResultRecord
                 {
                     ToolUseId = id,
-                    Content = text,
-                    IsError = isError,
+                    Content = "tool threw: " + e.Message,
+                    IsError = true,
                 });
                 ExecuteToolCalls(calls, index + 1);
-            });
+            }
         }
 
         void AppendResult(string toolUseId, string text, bool isError)
