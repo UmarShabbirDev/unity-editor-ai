@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Newtonsoft.Json.Linq;
 using UnityEditor;
 using UnityEngine;
@@ -9,15 +10,27 @@ namespace HusnainUnityAI
     public class HusnainAIWindow : EditorWindow
     {
         [Serializable]
+        public class Attachment
+        {
+            public string Filename;
+            public string MediaType;
+            public string Base64Data;
+            public bool IsImage;
+            public long SizeBytes;
+        }
+
+        [Serializable]
         public struct ChatTurn
         {
             public string Role;
             public string Text;
+            public List<Attachment> Attachments;
             public List<ToolCallRecord> ToolCalls;
             public List<ToolResultRecord> ToolResults;
         }
 
         [SerializeField] List<ChatTurn> _turns = new List<ChatTurn>();
+        [SerializeField] List<Attachment> _pendingAttachments = new List<Attachment>();
         [SerializeField] string _input = "";
         [SerializeField] string _conversationId;
         [SerializeField] string _conversationTitle = "New conversation";
@@ -35,6 +48,8 @@ namespace HusnainUnityAI
         string _systemDraft;
         bool _showApiKey;
 
+        const long MaxImageBytes = 5L * 1024 * 1024;
+        const long MaxPdfBytes = 32L * 1024 * 1024;
         const float SidebarWidth = 220f;
 
         List<ConversationMeta> _conversationsList = new List<ConversationMeta>();
@@ -52,6 +67,7 @@ namespace HusnainUnityAI
         {
             titleContent = new GUIContent("Husnain AI");
             if (_turns == null) _turns = new List<ChatTurn>();
+            if (_pendingAttachments == null) _pendingAttachments = new List<Attachment>();
 
             RefreshConversations();
 
@@ -355,6 +371,17 @@ namespace HusnainUnityAI
                 var label = t.Role == "user" ? "You" : "Husnain AI";
                 EditorGUILayout.LabelField(label, EditorStyles.miniBoldLabel);
 
+                if (t.Attachments != null && t.Attachments.Count > 0)
+                {
+                    foreach (var a in t.Attachments)
+                    {
+                        var kind = a.IsImage ? "image" : "doc";
+                        EditorGUILayout.LabelField(
+                            $"  [{kind}] {a.Filename} ({FormatSize(a.SizeBytes)})",
+                            EditorStyles.miniLabel);
+                    }
+                }
+
                 if (!string.IsNullOrEmpty(t.Text))
                 {
                     var textStyle = new GUIStyle(EditorStyles.textArea)
@@ -397,6 +424,27 @@ namespace HusnainUnityAI
 
         void DrawInput()
         {
+            if (_pendingAttachments.Count > 0)
+            {
+                EditorGUILayout.Space(2);
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.Label("Attachments:", EditorStyles.miniBoldLabel, GUILayout.Width(80));
+                int removeIndex = -1;
+                for (int i = 0; i < _pendingAttachments.Count; i++)
+                {
+                    var a = _pendingAttachments[i];
+                    var kind = a.IsImage ? "img" : "doc";
+                    var label = $"[{kind}] {a.Filename}  ✕";
+                    if (GUILayout.Button(label, EditorStyles.miniButton, GUILayout.MaxWidth(220)))
+                    {
+                        removeIndex = i;
+                    }
+                }
+                GUILayout.FlexibleSpace();
+                EditorGUILayout.EndHorizontal();
+                if (removeIndex >= 0) _pendingAttachments.RemoveAt(removeIndex);
+            }
+
             EditorGUILayout.Space(4);
             using (new EditorGUI.DisabledScope(_waiting))
             {
@@ -404,8 +452,18 @@ namespace HusnainUnityAI
             }
 
             EditorGUILayout.BeginHorizontal();
+            using (new EditorGUI.DisabledScope(_waiting))
+            {
+                if (GUILayout.Button("Attach", EditorStyles.miniButton, GUILayout.Width(70)))
+                {
+                    AttachFile();
+                }
+            }
+
             GUILayout.FlexibleSpace();
-            using (new EditorGUI.DisabledScope(_waiting || string.IsNullOrWhiteSpace(_input)))
+            bool canSend = !_waiting
+                           && (!string.IsNullOrWhiteSpace(_input) || _pendingAttachments.Count > 0);
+            using (new EditorGUI.DisabledScope(!canSend))
             {
                 if (GUILayout.Button("Send", GUILayout.Width(80), GUILayout.Height(24)))
                 {
@@ -414,6 +472,78 @@ namespace HusnainUnityAI
             }
             EditorGUILayout.EndHorizontal();
             EditorGUILayout.Space(6);
+        }
+
+        void AttachFile()
+        {
+            string path = EditorUtility.OpenFilePanel(
+                "Attach image or PDF",
+                "",
+                "png,jpg,jpeg,gif,webp,pdf");
+            if (string.IsNullOrEmpty(path)) return;
+
+            try
+            {
+                var fi = new FileInfo(path);
+                if (!fi.Exists) return;
+
+                string mediaType = MediaTypeFor(fi.Extension);
+                if (mediaType == null)
+                {
+                    EditorUtility.DisplayDialog(
+                        "Unsupported file",
+                        "Only PNG, JPEG, GIF, WebP and PDF are supported.",
+                        "OK");
+                    return;
+                }
+
+                bool isImage = mediaType.StartsWith("image/");
+                long limit = isImage ? MaxImageBytes : MaxPdfBytes;
+                if (fi.Length > limit)
+                {
+                    EditorUtility.DisplayDialog(
+                        "File too large",
+                        $"Max size is {FormatSize(limit)}. This file is {FormatSize(fi.Length)}.",
+                        "OK");
+                    return;
+                }
+
+                byte[] bytes = File.ReadAllBytes(path);
+                _pendingAttachments.Add(new Attachment
+                {
+                    Filename = fi.Name,
+                    MediaType = mediaType,
+                    Base64Data = Convert.ToBase64String(bytes),
+                    IsImage = isImage,
+                    SizeBytes = fi.Length,
+                });
+                Repaint();
+            }
+            catch (Exception e)
+            {
+                EditorUtility.DisplayDialog("Failed to attach", e.Message, "OK");
+            }
+        }
+
+        static string MediaTypeFor(string extension)
+        {
+            switch ((extension ?? "").ToLowerInvariant())
+            {
+                case ".png": return "image/png";
+                case ".jpg":
+                case ".jpeg": return "image/jpeg";
+                case ".gif": return "image/gif";
+                case ".webp": return "image/webp";
+                case ".pdf": return "application/pdf";
+                default: return null;
+            }
+        }
+
+        static string FormatSize(long bytes)
+        {
+            if (bytes < 1024) return $"{bytes} B";
+            if (bytes < 1024 * 1024) return $"{bytes / 1024.0:0.#} KB";
+            return $"{bytes / (1024.0 * 1024.0):0.##} MB";
         }
 
         static string Truncate(string s, int n)
@@ -460,6 +590,7 @@ namespace HusnainUnityAI
             _conversationTitle = "New conversation";
             _conversationCreatedAt = DateTime.UtcNow.ToString("o");
             _turns.Clear();
+            _pendingAttachments.Clear();
             _input = "";
             _error = null;
             if (persistImmediately) SaveCurrent();
@@ -474,6 +605,7 @@ namespace HusnainUnityAI
             _conversationTitle = string.IsNullOrEmpty(snap.title) ? "New conversation" : snap.title;
             _conversationCreatedAt = snap.createdAt;
             _turns = snap.turns ?? new List<ChatTurn>();
+            _pendingAttachments.Clear();
             _input = "";
             _error = null;
         }
@@ -514,9 +646,18 @@ namespace HusnainUnityAI
         void Send()
         {
             var prompt = _input.Trim();
-            if (string.IsNullOrEmpty(prompt)) return;
+            bool hasText = !string.IsNullOrEmpty(prompt);
+            bool hasAttachments = _pendingAttachments.Count > 0;
+            if (!hasText && !hasAttachments) return;
 
-            _turns.Add(new ChatTurn { Role = "user", Text = prompt });
+            var turn = new ChatTurn
+            {
+                Role = "user",
+                Text = prompt,
+                Attachments = hasAttachments ? new List<Attachment>(_pendingAttachments) : null,
+            };
+            _turns.Add(turn);
+            _pendingAttachments.Clear();
             _input = "";
             _error = null;
             _waiting = true;
@@ -661,6 +802,23 @@ namespace HusnainUnityAI
             foreach (var t in _turns)
             {
                 var blocks = new List<OutgoingContentBlock>();
+
+                if (t.Attachments != null)
+                {
+                    foreach (var a in t.Attachments)
+                    {
+                        blocks.Add(new OutgoingContentBlock
+                        {
+                            type = a.IsImage ? "image" : "document",
+                            source = new OutgoingSource
+                            {
+                                type = "base64",
+                                media_type = a.MediaType,
+                                data = a.Base64Data,
+                            },
+                        });
+                    }
+                }
 
                 if (!string.IsNullOrEmpty(t.Text))
                 {
