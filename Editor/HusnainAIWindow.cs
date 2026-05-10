@@ -308,6 +308,9 @@ namespace HusnainUnityAI
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Model", EditorStyles.boldLabel);
             _modelDraft = EditorGUILayout.TextField("Model", _modelDraft);
+            EditorGUILayout.HelpBox(
+                "Defaults to claude-opus-4-7. Other options: claude-sonnet-4-6, claude-haiku-4-5.",
+                MessageType.None);
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Permissions", EditorStyles.boldLabel);
@@ -317,6 +320,11 @@ namespace HusnainUnityAI
             {
                 HusnainAISettings.AutoApproveEdits = auto;
             }
+            EditorGUILayout.HelpBox(
+                auto
+                    ? "Edits run automatically without asking. Read-only tools always run."
+                    : "You'll be prompted before each write/edit. Read-only tools always run.",
+                MessageType.None);
 
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("System prompt", EditorStyles.boldLabel);
@@ -349,6 +357,9 @@ namespace HusnainUnityAI
             EditorGUILayout.Space();
             EditorGUILayout.LabelField("Conversation storage", EditorStyles.boldLabel);
             EditorGUILayout.SelectableLabel(ChatHistory.Dir, EditorStyles.miniLabel,
+                                             GUILayout.Height(EditorGUIUtility.singleLineHeight));
+            EditorGUILayout.LabelField("Project root", EditorStyles.boldLabel);
+            EditorGUILayout.SelectableLabel(ProjectPaths.ProjectRoot, EditorStyles.miniLabel,
                                              GUILayout.Height(EditorGUIUtility.singleLineHeight));
         }
 
