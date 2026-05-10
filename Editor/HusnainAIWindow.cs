@@ -400,11 +400,12 @@ namespace HusnainUnityAI
                         wordWrap = true,
                         richText = false,
                     };
+                    float availW = position.width - (_showSidebar ? SidebarWidth : 0f) - 40f;
+                    float h = textStyle.CalcHeight(new GUIContent(t.Text), availW);
                     EditorGUILayout.SelectableLabel(
                         t.Text,
                         textStyle,
-                        GUILayout.MinHeight(EditorGUIUtility.singleLineHeight * 2),
-                        GUILayout.ExpandHeight(true));
+                        GUILayout.Height(h + 6f));
                 }
 
                 if (t.ToolCalls != null && t.ToolCalls.Count > 0)
