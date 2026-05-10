@@ -8,6 +8,7 @@ namespace HusnainUnityAI
         const string ModelPref = "HusnainUnityAI.Model";
         const string MaxTokensPref = "HusnainUnityAI.MaxTokens";
         const string SystemPromptPref = "HusnainUnityAI.SystemPrompt";
+        const string AutoApprovePref = "HusnainUnityAI.AutoApproveEdits";
 
         public const string DefaultModel = "claude-opus-4-7";
         public const int DefaultMaxTokens = 16384;
@@ -39,6 +40,12 @@ Be concise. Reference file paths with line numbers when relevant.";
         {
             get => EditorPrefs.GetString(SystemPromptPref, DefaultSystemPrompt);
             set => EditorPrefs.SetString(SystemPromptPref, string.IsNullOrEmpty(value) ? DefaultSystemPrompt : value);
+        }
+
+        public static bool AutoApproveEdits
+        {
+            get => EditorPrefs.GetBool(AutoApprovePref, false);
+            set => EditorPrefs.SetBool(AutoApprovePref, value);
         }
 
         public static void ClearApiKey() => EditorPrefs.DeleteKey(ApiKeyPref);
