@@ -16,6 +16,7 @@ namespace HusnainUnityAI
             Add(new GrepTool());
             Add(new WriteFileTool());
             Add(new EditFileTool());
+            Add(new CompileCheckTool());
             return dict;
         }
 
