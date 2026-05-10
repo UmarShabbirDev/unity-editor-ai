@@ -373,7 +373,10 @@ namespace HusnainUnityAI
                         var color = r.IsError ? new Color(0.95f, 0.5f, 0.5f) : new Color(0.6f, 0.85f, 0.6f);
                         var prev = GUI.color;
                         GUI.color = color;
-                        EditorGUILayout.LabelField("  " + prefix + " " + snippet, EditorStyles.miniLabel);
+                        EditorGUILayout.SelectableLabel(
+                            "  " + prefix + " " + snippet,
+                            EditorStyles.miniLabel,
+                            GUILayout.Height(EditorGUIUtility.singleLineHeight));
                         GUI.color = prev;
                     }
                     continue;
@@ -387,9 +390,10 @@ namespace HusnainUnityAI
                     foreach (var a in t.Attachments)
                     {
                         var kind = a.IsImage ? "image" : "doc";
-                        EditorGUILayout.LabelField(
+                        EditorGUILayout.SelectableLabel(
                             $"  [{kind}] {a.Filename} ({FormatSize(a.SizeBytes)})",
-                            EditorStyles.miniLabel);
+                            EditorStyles.miniLabel,
+                            GUILayout.Height(EditorGUIUtility.singleLineHeight));
                     }
                 }
 
@@ -413,7 +417,10 @@ namespace HusnainUnityAI
                     foreach (var tc in t.ToolCalls)
                     {
                         var preview = ToolPreview(tc);
-                        EditorGUILayout.LabelField("  ⚙ " + preview, EditorStyles.miniLabel);
+                        EditorGUILayout.SelectableLabel(
+                            "  ⚙ " + preview,
+                            EditorStyles.miniLabel,
+                            GUILayout.Height(EditorGUIUtility.singleLineHeight));
                     }
                 }
             }
