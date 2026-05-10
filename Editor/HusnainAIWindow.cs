@@ -852,7 +852,8 @@ namespace HusnainUnityAI
                 var last = _turns[_turns.Count - 1];
                 if (last.Role == "user"
                     && last.ToolResults != null
-                    && string.IsNullOrEmpty(last.Text))
+                    && string.IsNullOrEmpty(last.Text)
+                    && (last.Attachments == null || last.Attachments.Count == 0))
                 {
                     last.ToolResults.Add(tr);
                     _turns[_turns.Count - 1] = last;
