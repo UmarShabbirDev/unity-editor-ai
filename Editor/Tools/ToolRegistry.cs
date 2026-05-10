@@ -13,6 +13,7 @@ namespace HusnainUnityAI
             Add(new ReadFileTool());
             Add(new ListFilesTool());
             Add(new GlobTool());
+            Add(new GrepTool());
             return dict;
         }
 
