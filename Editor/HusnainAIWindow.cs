@@ -367,6 +367,14 @@ namespace HusnainUnityAI
         {
             _scroll = EditorGUILayout.BeginScrollView(_scroll);
 
+            if (_turns.Count == 0)
+            {
+                EditorGUILayout.Space(40);
+                var hint = new GUIStyle(EditorStyles.centeredGreyMiniLabel) { fontSize = 12 };
+                EditorGUILayout.LabelField("Ask anything about your Unity project.", hint);
+                EditorGUILayout.LabelField("AI can read & write files. Toggle Auto-accept above.", hint);
+            }
+
             foreach (var t in _turns)
             {
                 EditorGUILayout.Space(6);
