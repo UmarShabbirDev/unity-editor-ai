@@ -63,13 +63,18 @@ namespace HusnainUnityAI
         void WatchTimeout()
         {
             if (_pending == null) return;
-            if (EditorApplication.timeSinceStartup - _startedAt < TimeoutSeconds) return;
-            if (EditorApplication.isCompiling) return;
+            var elapsed = EditorApplication.timeSinceStartup - _startedAt;
+            if (elapsed < TimeoutSeconds) return;
 
+            // Force-complete after timeout regardless of EditorApplication.isCompiling.
+            // When LockReloadAssemblies is in effect, isCompiling can stay true indefinitely
+            // because compilation is queued behind the lock. Don't block on it.
             CompleteWith(ToolExecutionResult.Ok(
-                "Compile finished (no callback received within " + TimeoutSeconds + "s). " +
-                "Likely no scripts needed recompilation. " +
-                (_errors.Count > 0 ? _errors.Count + " errors observed." : "No errors observed.")));
+                $"compile_check timed out after {(int)elapsed}s. " +
+                (_errors.Count > 0
+                    ? _errors.Count + " errors observed before timeout."
+                    : "No errors observed.") +
+                " (Unity may still be compiling in the background — call compile_check again if needed.)"));
         }
 
         void OnAssemblyFinished(string assemblyPath, CompilerMessage[] messages)
